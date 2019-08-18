@@ -13,7 +13,10 @@ class ArticlesTable extends Table
     {
         $this->addBehavior('Timestamp');
         $this->belongsTo('Users');
-        $this->belongsToMany('Tags');
+        $this->belongsToMany('Tags', [
+            'joinTable' => 'articles_tags',
+            'dependent' => true
+        ]);
     }
 
     public function beforeSave($event, $entity, $options)
@@ -21,6 +24,10 @@ class ArticlesTable extends Table
         if ($entity->isNew() && !$entity->slig) {
             $slugTitle = Text::slug($entity->title);
             $entity->slug = substr($slugTitle, 0, 191);
+        }
+
+        if ($entity->tag_string) {
+            $entity->tags = $this->_buildTags($entity->tag_string);
         }
     }
 
@@ -56,5 +63,36 @@ class ArticlesTable extends Table
         }
 
         return $query->group(['Articles.id']);
+    }
+
+    protected function _buildTags($tagString)
+    {
+        // Trim tags
+        $newTags = array_map('trim', explode(',', $tagString));
+        // Remove all empty tags
+        $newTags = array_filter($newTags);
+        // Reduce duplicated tags
+        $newTags = array_unique($newTags);
+
+        $out = [];
+        $query = $this->Tags->find()
+            ->where(['Tags.title IN' => $newTags]);
+
+        // Remove existing tags from the list of new tags.
+        foreach ($query->extract('title') as $existing) {
+            $index = array_search($existing, $newTags);
+            if ($index !== false) {
+                unset($newTags[$index]);
+            }
+        }
+        // Add existing tags.
+        foreach ($query as $tag) {
+            $out[] = $tag;
+        }
+        // Add new tags.
+        foreach ($newTags as $tag) {
+            $out[] = $this->Tags->newEntity(['title' => $tag]);
+        }
+        return $out;
     }
 }
